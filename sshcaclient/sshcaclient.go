@@ -140,7 +140,6 @@ OUTER:
 	}
 
 	secret, err := ak.ActivateCredential(tpm, encryptedCredentials)
-	ak.Close(tpm)
 	if err != nil {
 		lgr.Error("activate_credential_err", "err", err)
 		os.Exit(1)
@@ -151,6 +150,7 @@ OUTER:
 		lgr.Error("new_app_key_err", "err", err)
 		os.Exit(1)
 	}
+	ak.Close(tpm)
 
 	certParams := appKey.CertificationParameters()
 
