@@ -167,7 +167,8 @@ OUTER:
 	certParams := appKey.CertificationParameters()
 
 	proof := messages.ChallengeProof{
-		Secret: secret,
+		ChallengeID: challenge.ChallengeID,
+		Secret:      secret,
 		CertificationParameters: messages.CertificationParameters{
 			Public:            certParams.Public,
 			CreateData:        certParams.CreateData,

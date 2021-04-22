@@ -15,11 +15,13 @@ type AttestationParameters struct {
 }
 
 type ChallengeResponse struct {
-	Credential []byte `json:"credential"`
-	Secret     []byte `json:"secret"`
+	ChallengeID string `json:"challenge_id"`
+	Credential  []byte `json:"credential"`
+	Secret      []byte `json:"secret"`
 }
 
 type ChallengeProof struct {
+	ChallengeID             string                  `json:"challenge_id"`
 	Secret                  []byte                  `json:"secret"`
 	CertificationParameters CertificationParameters `json:"certification_parameters"`
 }

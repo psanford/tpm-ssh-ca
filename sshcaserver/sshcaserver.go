@@ -5,6 +5,7 @@ import (
 	"crypto/ecdsa"
 	"crypto/rand"
 	"crypto/rsa"
+	"crypto/subtle"
 	"crypto/x509"
 	"encoding/binary"
 	"encoding/hex"
@@ -114,6 +115,7 @@ type pendingChallenge struct {
 	ek     crypto.PublicKey
 	ak     crypto.PublicKey
 	akHash crypto.Hash
+	secret []byte
 }
 
 func (s *server) challengeHandler(w http.ResponseWriter, r *http.Request) {
@@ -155,8 +157,6 @@ func (s *server) challengeHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	secretStr := hex.EncodeToString(secret)
-
 	tpmKey, err := tpm2.DecodePublic(ak.Public)
 	if err != nil {
 		lgr.Error("parse_tpm2_ak_err", "err", err)
@@ -179,18 +179,23 @@ func (s *server) challengeHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.mu.Lock()
-	// XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-	// make index and subtle
-	s.challenges[secretStr] = &pendingChallenge{
+
+	challengeIDBytes := make([]byte, 20)
+	rand.Read(challengeIDBytes)
+
+	challengeID := hex.EncodeToString(challengeIDBytes)
+	s.challenges[challengeID] = &pendingChallenge{
 		ek:     ek,
 		ak:     akPubKey,
 		akHash: hash,
+		secret: secret,
 	}
 	s.mu.Unlock()
 
 	resp := messages.ChallengeResponse{
-		Credential: encryptedCredentials.Credential,
-		Secret:     encryptedCredentials.Secret,
+		ChallengeID: challengeID,
+		Credential:  encryptedCredentials.Credential,
+		Secret:      encryptedCredentials.Secret,
 	}
 
 	json.NewEncoder(w).Encode(resp)
@@ -206,15 +211,19 @@ func (s *server) proofHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	secret := hex.EncodeToString(proof.Secret)
-
 	s.mu.Lock()
-	pending := s.challenges[secret]
-	delete(s.challenges, secret)
+	pending := s.challenges[proof.ChallengeID]
+	delete(s.challenges, proof.ChallengeID)
 	s.mu.Unlock()
 
 	if pending == nil {
 		lgr.Error("no_key_found_for_secret")
+		http.Error(w, "Bad Request", http.StatusBadRequest)
+		return
+	}
+
+	if subtle.ConstantTimeCompare(proof.Secret, pending.secret) != 1 {
+		lgr.Error("bad_secret")
 		http.Error(w, "Bad Request", http.StatusBadRequest)
 		return
 	}
