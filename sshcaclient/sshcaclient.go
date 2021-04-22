@@ -6,26 +6,38 @@ import (
 	"crypto/ecdsa"
 	"crypto/rsa"
 	"crypto/x509"
+	"encoding/base64"
 	"encoding/json"
 	"encoding/pem"
+	"errors"
 	"flag"
 	"fmt"
 	"io/ioutil"
+	"log"
+	"net"
 	"net/http"
 	"os"
+	"time"
 
 	"github.com/google/go-attestation/attest"
 	"github.com/inconshreveable/log15"
 	"github.com/psanford/tpm-ssh-ca/messages"
+	"golang.org/x/crypto/ssh"
 )
 
 var (
-	printEK   = flag.Bool("print-keys", false, "Print TPM EK keys and exit")
-	serverURL = flag.String("url", "http://localhost:1234", "Server url")
+	printEK    = flag.Bool("print-keys", false, "Print TPM EK keys and exit")
+	serverURL  = flag.String("url", "http://localhost:1234", "Server url")
+	socketPath = flag.String("l", "", "agent: path of the UNIX socket to listen on")
 )
 
 func main() {
 	flag.Parse()
+
+	if *socketPath == "" {
+		flag.Usage()
+		os.Exit(1)
+	}
 
 	handler := log15.StreamHandler(os.Stdout, log15.LogfmtFormat())
 	log15.Root().SetHandler(handler)
@@ -150,7 +162,7 @@ OUTER:
 		lgr.Error("new_app_key_err", "err", err)
 		os.Exit(1)
 	}
-	ak.Close(tpm)
+	defer ak.Close(tpm)
 
 	certParams := appKey.CertificationParameters()
 
@@ -187,7 +199,44 @@ OUTER:
 		os.Exit(1)
 	}
 
-	fmt.Printf("Signed cert:\n%s\n", signedResp.SignedCert)
+	pubKeyCert, err := parseOpenSSHPublicKey(signedResp.SignedCert)
+	if err != nil {
+		lgr.Error("parse_public_key_cert_err", "err", err)
+		os.Exit(1)
+	}
+
+	privateKey, err := appKey.Private(appKey.Public())
+	if err != nil {
+		lgr.Error("get_app_private_key_err", "err", err)
+		os.Exit(1)
+	}
+
+	a := Agent{
+		pubKey: pubKeyCert,
+		signer: privateKey,
+	}
+
+	os.Remove(*socketPath)
+	l, err := net.Listen("unix", *socketPath)
+	if err != nil {
+		log.Fatalln("Failed to listen on UNIX socket:", err)
+	}
+
+	for {
+		c, err := l.Accept()
+		if err != nil {
+			type temporary interface {
+				Temporary() bool
+			}
+			if err, ok := err.(temporary); ok && err.Temporary() {
+				log.Println("Temporary Accept error, sleeping 1s:", err)
+				time.Sleep(1 * time.Second)
+				continue
+			}
+			log.Fatalln("Failed to accept connections:", err)
+		}
+		go a.serveConn(c)
+	}
 }
 
 func keyToPem(key crypto.PublicKey) string {
@@ -202,4 +251,18 @@ func keyToPem(key crypto.PublicKey) string {
 	})
 
 	return string(canonicalPem)
+}
+
+func parseOpenSSHPublicKey(encoded []byte) (ssh.PublicKey, error) {
+	parts := bytes.SplitN(encoded, []byte(" "), 3)
+	if len(parts) < 2 {
+		return nil, errors.New("public key or certificate not in OpenSSH format")
+	}
+
+	decoded, err := base64.StdEncoding.DecodeString(string(parts[1]))
+	if err != nil {
+		return nil, err
+	}
+
+	return ssh.ParsePublicKey(decoded)
 }
