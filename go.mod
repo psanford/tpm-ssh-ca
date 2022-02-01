@@ -4,7 +4,7 @@ go 1.16
 
 require (
 	github.com/aws/aws-lambda-go v1.23.0
-	github.com/google/go-attestation v0.3.2
+	github.com/google/go-attestation v0.4.2
 	github.com/google/go-tpm v0.3.2
 	github.com/hashicorp/hcl/v2 v2.10.0
 	github.com/inconshreveable/log15 v0.0.0-20201112154412-8562bdadbbac
