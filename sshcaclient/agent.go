@@ -21,11 +21,18 @@ type Agent struct {
 
 // List returns the identities known to the agent.
 func (a *Agent) List() ([]*agent.Key, error) {
-	return []*agent.Key{{
-		Format:  a.pubKey.Type(),
-		Blob:    a.pubKey.Marshal(),
-		Comment: fmt.Sprintf("TPM cert"),
-	}}, nil
+	return []*agent.Key{
+		{
+			Format:  a.pubKey.Type(),
+			Blob:    a.pubKey.Marshal(),
+			Comment: fmt.Sprintf("CA key"),
+		},
+		{
+			Format:  a.pubKey.Type() + "-CERT",
+			Blob:    a.pubKey.Marshal(),
+			Comment: fmt.Sprintf("CA cert"),
+		},
+	}, nil
 }
 
 func (a *Agent) serveConn(c net.Conn) {
